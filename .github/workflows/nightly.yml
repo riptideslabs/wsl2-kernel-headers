@@ -1,0 +1,111 @@
+name: Nightly
+
+# Microsoft publishes WSL2 kernels as tags on its own kernel tree, a few times a
+# year per branch. This polls for tags we have not built yet and publishes an
+# image per (tag, arch); on most nights it finds nothing and exits.
+
+on:
+  schedule:
+    - cron: "40 2 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Build one specific tag instead of polling"
+        type: string
+      force:
+        description: "Rebuild even if the image already exists"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  # Microsoft's live branches. Add the next one here when it appears.
+  BRANCHES: "6.6 6.18"
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    outputs:
+      builds: ${{ steps.plan.outputs.builds }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      # Highest tag per branch, minus what is already published. `docker
+      # manifest inspect` failing is the "not published yet" signal.
+      - name: Plan builds
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ONE_TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ONE_TAG" ]; then
+            tags="$ONE_TAG"
+          else
+            tags=""
+            for b in $BRANCHES; do
+              latest=$(gh api --paginate \
+                repos/microsoft/WSL2-Linux-Kernel/git/matching-refs/tags/linux-msft-wsl-$b. \
+                --jq '.[].ref' | sed 's|refs/tags/||' | sort -V | tail -n1)
+              [ -n "$latest" ] && tags="$tags $latest"
+            done
+          fi
+          echo "candidate tags:$tags"
+
+          builds='[]'
+          for t in $tags; do
+            for a in x86; do   # arm64: see the note in README
+              if [ "$FORCE" != "true" ] && docker manifest inspect "$IMAGE:$t-$a" >/dev/null 2>&1; then
+                echo "$t-$a already published"
+                continue
+              fi
+              builds=$(echo "$builds" | jq -c --arg t "$t" --arg a "$a" \
+                '. + [{tag: $t, arch: $a, runner: "ubuntu-24.04"}]')
+            done
+          done
+          echo "builds=$builds" >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "$builds" | jq 'length')" >> "$GITHUB_OUTPUT"
+          echo "$builds" | jq .
+
+  build:
+    needs: discover
+    if: needs.discover.outputs.count != '0'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.discover.outputs.builds) }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      # Not buildx/cache: the expensive step is a kernel build whose inputs are
+      # a fixed tag, so a published image already is the cache.
+      - name: Build ${{ matrix.tag }} (${{ matrix.arch }})
+        run: |
+          docker build \
+            --build-arg TAG=${{ matrix.tag }} \
+            --build-arg ARCH=${{ matrix.arch }} \
+            -t "$IMAGE:${{ matrix.tag }}-${{ matrix.arch }}" .
+      - name: Check it can build a module
+        run: |
+          docker run --rm "$IMAGE:${{ matrix.tag }}-${{ matrix.arch }}" \
+            bash -c 'set -eux; K=$(cat /kversion); test -d /lib/modules/$K/build;
+              mkdir -p /m && cd /m
+              printf "#include <linux/module.h>\nMODULE_LICENSE(\"GPL\");\n" > t.c
+              echo "obj-m += t.o" > Makefile
+              make -C /lib/modules/$K/build M=/m modules
+              modinfo -F vermagic t.ko | grep -qF "$K"'
+      - name: Push
+        run: docker push "$IMAGE:${{ matrix.tag }}-${{ matrix.arch }}"
