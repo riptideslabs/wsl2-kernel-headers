@@ -80,11 +80,14 @@ cfg_value() { # value of $2 in file $1, or "unset"
 	v="$(grep -E "^$2=" "$1" | head -n1 | cut -d= -f2- || true)"
 	echo "${v:-unset}"
 }
+# `|| true`: no plugin is enabled upstream, so this grep finds nothing and
+# exits 1, which under set -e would kill the script from inside the assignment.
+plugin_opts="$(grep -oE '^CONFIG_GCC_PLUGIN_[A-Z0-9_]+' "$SRC/$CONFIG" | sort -u || true)"
 abi_opts="CONFIG_MODVERSIONS CONFIG_MODULE_SIG
 	CONFIG_RANDSTRUCT CONFIG_RANDSTRUCT_FULL CONFIG_RANDSTRUCT_PERFORMANCE
 	CONFIG_LTO_NONE CONFIG_LTO_CLANG_FULL CONFIG_LTO_CLANG_THIN
 	CONFIG_CFI CONFIG_CFI_CLANG CONFIG_SHADOW_CALL_STACK
-	$(grep -oE '^CONFIG_GCC_PLUGIN_[A-Z0-9_]+' "$SRC/$CONFIG" | sort -u)"
+	$plugin_opts"
 drift=0
 for o in $abi_opts; do
 	up="$(cfg_value "$SRC/$CONFIG" "$o")"
