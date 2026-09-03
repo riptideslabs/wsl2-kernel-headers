@@ -92,8 +92,10 @@ jobs:
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - uses: docker/setup-buildx-action@v3
       # The kernel build is ~25 min and keyed on an immutable tag, so a change
-      # to the image layers alone should not pay for it again. `buildcache-*`
-      # tags are prunable at any time; a miss just means a full rebuild.
+      # to the image layers alone should not pay for it again. The cache lives in
+      # its own package: buildx registry cache is stored as a tag, and it has no
+      # business cluttering the tag list people pull from. Prunable at any time;
+      # a miss just means a full rebuild.
       #
       # The image self-tests as it builds (see the Dockerfile), so a broken tree
       # or a missing runtime library fails before anything is pushed.
@@ -106,8 +108,8 @@ jobs:
           build-args: |
             TAG=${{ matrix.tag }}
             ARCH=${{ matrix.arch }}
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.tag }}-${{ matrix.arch }}
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.tag }}-${{ matrix.arch }},mode=max
+          cache-from: type=registry,ref=${{ env.IMAGE }}-cache:${{ matrix.tag }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}-cache:${{ matrix.tag }}-${{ matrix.arch }},mode=max
       - name: Check the pushed image
         run: |
           docker run --rm "$IMAGE:${{ matrix.tag }}-${{ matrix.arch }}" \
