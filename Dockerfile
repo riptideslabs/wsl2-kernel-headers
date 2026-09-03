@@ -20,10 +20,13 @@ ARG KEEP_DRIVER_HEADERS=1
 
 RUN test -n "${TAG}" || { echo "TAG is not set"; exit 1; }
 
+# With DEBUG_INFO_BTF=y, `prepare` builds tools/bpf/resolve_btfids, whose
+# in-tree libbpf generates bpf_helper_defs.h with a Python script and links
+# against zlib - hence python3, zlib1g-dev and pkg-config alongside pahole.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential flex bison libelf-dev libssl-dev bc cpio \
         curl ca-certificates \
-        $([ "${BTF}" = "1" ] && echo dwarves) \
+        $([ "${BTF}" = "1" ] && echo dwarves python3 zlib1g-dev pkg-config) \
     && rm -rf /var/lib/apt/lists/*
 
 # Microsoft builds these kernels with GCC 13. ubuntu:24.04 happens to default to
