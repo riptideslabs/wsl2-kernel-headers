@@ -76,9 +76,9 @@ gh workflow run nightly.yml -f tag=linux-msft-wsl-6.18.33.2
 Each image is smoke-tested by building a trivial module inside it before the
 push.
 
-`arm64` (Windows on ARM) is left out of the nightly matrix for now: hosted
-arm64 runners are not free for private repos. Build it by hand on an arm64 host,
-or add the matrix entry once this repo is public.
+`arm64` (Windows on ARM) is not in the nightly matrix yet. Now that the repo is
+public, hosted arm64 runners are available, so it is a matrix entry away - it
+just doubles the nightly's work, so enable it when something needs it.
 
 ## Notes
 
@@ -92,5 +92,6 @@ or add the matrix entry once this repo is public.
   headers, generated config, `scripts/`, `tools/` and `Module.symvers` are kept.
   `scripts/` and `tools/` sources stay, since kbuild may re-link those host
   tools.
-- This repo is private for now. Pick a license for the scripts before making it
-  public.
+- The scripts here have no license yet. Public with no license means all rights
+  reserved, which is not the intent for something meant to fill a gap other
+  people keep hitting - worth picking one.
