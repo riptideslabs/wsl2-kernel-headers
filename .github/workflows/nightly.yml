@@ -90,22 +90,25 @@ jobs:
       - uses: actions/checkout@v5
       - name: Log in to GHCR
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      # Not buildx/cache: the expensive step is a kernel build whose inputs are
-      # a fixed tag, so a published image already is the cache.
-      - name: Build ${{ matrix.tag }} (${{ matrix.arch }})
-        run: |
-          docker build \
-            --build-arg TAG=${{ matrix.tag }} \
-            --build-arg ARCH=${{ matrix.arch }} \
-            -t "$IMAGE:${{ matrix.tag }}-${{ matrix.arch }}" .
-      - name: Check it can build a module
+      - uses: docker/setup-buildx-action@v3
+      # The kernel build is ~25 min and keyed on an immutable tag, so a change
+      # to the image layers alone should not pay for it again. `buildcache-*`
+      # tags are prunable at any time; a miss just means a full rebuild.
+      #
+      # The image self-tests as it builds (see the Dockerfile), so a broken tree
+      # or a missing runtime library fails before anything is pushed.
+      - name: Build and push ${{ matrix.tag }} (${{ matrix.arch }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:${{ matrix.tag }}-${{ matrix.arch }}
+          build-args: |
+            TAG=${{ matrix.tag }}
+            ARCH=${{ matrix.arch }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.tag }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.tag }}-${{ matrix.arch }},mode=max
+      - name: Check the pushed image
         run: |
           docker run --rm "$IMAGE:${{ matrix.tag }}-${{ matrix.arch }}" \
-            bash -c 'set -eux; K=$(cat /kversion); test -d /lib/modules/$K/build;
-              mkdir -p /m && cd /m
-              printf "#include <linux/module.h>\nMODULE_LICENSE(\"GPL\");\n" > t.c
-              echo "obj-m += t.o" > Makefile
-              make -C /lib/modules/$K/build M=/m modules
-              modinfo -F vermagic t.ko | grep -qF "$K"'
-      - name: Push
-        run: docker push "$IMAGE:${{ matrix.tag }}-${{ matrix.arch }}"
+            sh -c 'K=$(cat /kversion); echo "$K"; test -f /lib/modules/$K/build/Module.symvers'

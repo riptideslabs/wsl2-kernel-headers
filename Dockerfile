@@ -38,8 +38,11 @@ LABEL org.opencontainers.image.description="Kernel-devel tree for Microsoft's WS
 LABEL org.opencontainers.image.source="https://github.com/microsoft/WSL2-Linux-Kernel"
 LABEL org.opencontainers.image.licenses="GPL-2.0-only"
 
+# libelf1 is not optional: the prebuilt tools/objtool is dynamically linked
+# against it, and on x86 kbuild runs objtool over every module object, so
+# without it every module build in this image dies with exit 127.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential git kmod \
+        build-essential git kmod libelf1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /wsl-kernel /wsl-kernel
@@ -51,3 +54,15 @@ RUN set -eux; \
     mkdir -p "/lib/modules/${KVERSION}"; \
     ln -sf "/wsl-kernel/${TAG}-${ARCH}" "/lib/modules/${KVERSION}/build"; \
     test -f "/lib/modules/${KVERSION}/build/Module.symvers"
+
+# Build a trivial module here, not just in CI: the tree is only half the image,
+# and the runtime libraries the prebuilt host tools need are the other half.
+# Pruning too much, or missing a shared library, fails right here.
+RUN set -eux; \
+    KVERSION="$(cat /kversion)"; \
+    mkdir -p /tmp/selftest; cd /tmp/selftest; \
+    printf '#include <linux/module.h>\nMODULE_LICENSE("GPL");\n' > selftest.c; \
+    echo 'obj-m += selftest.o' > Makefile; \
+    make -C "/lib/modules/${KVERSION}/build" M=/tmp/selftest modules; \
+    modinfo -F vermagic selftest.ko | grep -qF "${KVERSION}"; \
+    cd /; rm -rf /tmp/selftest
