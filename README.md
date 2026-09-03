@@ -11,8 +11,13 @@ builds the tree from Microsoft's own tags and publishes it in the shape a distro
 
 ## Using it
 
+Tags are `<kernel-version>-<arch>` — the version is the first field of
+`uname -r` inside WSL2, so a machine reporting
+`6.6.123.2-microsoft-standard-WSL2` wants `6.6.123.2-x86`. Upstream that is the
+`linux-msft-wsl-6.6.123.2` tag of Microsoft's tree.
+
 ```bash
-docker run --rm -it ghcr.io/riptideslabs/wsl2-kernel-headers:linux-msft-wsl-6.6.123.2-x86
+docker run --rm -it ghcr.io/riptideslabs/wsl2-kernel-headers:6.6.123.2-x86
 # /kversion                        -> 6.6.123.2-microsoft-standard-WSL2
 # /lib/modules/<release>/build     -> the kernel-devel tree
 ```
@@ -21,7 +26,7 @@ Building a module needs no WSL2-specific setup, because the layout is the one
 kbuild expects anyway:
 
 ```dockerfile
-FROM ghcr.io/riptideslabs/wsl2-kernel-headers:linux-msft-wsl-6.6.123.2-x86
+FROM ghcr.io/riptideslabs/wsl2-kernel-headers:6.6.123.2-x86
 COPY . /src
 WORKDIR /src
 RUN KVERSION="$(cat /kversion)" make

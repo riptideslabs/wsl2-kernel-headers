@@ -64,13 +64,17 @@ jobs:
 
           builds='[]'
           for t in $tags; do
+            # Images are tagged by kernel version, not by Microsoft's git tag:
+            # the package name already says which kernel this is, and the version
+            # is the first field of `uname -r` inside WSL2.
+            v="${t#linux-msft-wsl-}"
             for a in x86; do   # arm64: see the note in README
-              if [ "$FORCE" != "true" ] && docker manifest inspect "$IMAGE:$t-$a" >/dev/null 2>&1; then
-                echo "$t-$a already published"
+              if [ "$FORCE" != "true" ] && docker manifest inspect "$IMAGE:$v-$a" >/dev/null 2>&1; then
+                echo "$v-$a already published"
                 continue
               fi
-              builds=$(echo "$builds" | jq -c --arg t "$t" --arg a "$a" \
-                '. + [{tag: $t, arch: $a, runner: "ubuntu-24.04"}]')
+              builds=$(echo "$builds" | jq -c --arg t "$t" --arg v "$v" --arg a "$a" \
+                '. + [{tag: $t, version: $v, arch: $a, runner: "ubuntu-24.04"}]')
             done
           done
           echo "builds=$builds" >> "$GITHUB_OUTPUT"
@@ -99,18 +103,18 @@ jobs:
       #
       # The image self-tests as it builds (see the Dockerfile), so a broken tree
       # or a missing runtime library fails before anything is pushed.
-      - name: Build and push ${{ matrix.tag }} (${{ matrix.arch }})
+      - name: Build and push ${{ matrix.version }} (${{ matrix.arch }})
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE }}:${{ matrix.tag }}-${{ matrix.arch }}
+          tags: ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.arch }}
           build-args: |
             TAG=${{ matrix.tag }}
             ARCH=${{ matrix.arch }}
-          cache-from: type=registry,ref=${{ env.IMAGE }}-cache:${{ matrix.tag }}-${{ matrix.arch }}
-          cache-to: type=registry,ref=${{ env.IMAGE }}-cache:${{ matrix.tag }}-${{ matrix.arch }},mode=max
+          cache-from: type=registry,ref=${{ env.IMAGE }}-cache:${{ matrix.version }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}-cache:${{ matrix.version }}-${{ matrix.arch }},mode=max
       - name: Check the pushed image
         run: |
-          docker run --rm "$IMAGE:${{ matrix.tag }}-${{ matrix.arch }}" \
+          docker run --rm "$IMAGE:${{ matrix.version }}-${{ matrix.arch }}" \
             sh -c 'K=$(cat /kversion); echo "$K"; test -f /lib/modules/$K/build/Module.symvers'
