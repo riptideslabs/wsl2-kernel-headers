@@ -148,3 +148,6 @@ fi
 
 echo "pruned: $before -> $(du -sh "$SRC" | cut -f1)"
 echo "$RELEASE" > "$OUT/kversion"
+# Recorded so consumers - and the image self-test - can tell whether modules
+# built here will carry BTF.
+echo "$BTF" > "$OUT/btf"

@@ -94,4 +94,10 @@ RUN set -eux; \
     echo 'obj-m += selftest.o' > Makefile; \
     make -C "/lib/modules/${KVERSION}/build" M=/tmp/selftest modules; \
     modinfo -F vermagic selftest.ko | grep -qF "${KVERSION}"; \
+    # A .ko without .BTF is rejected by a DEBUG_INFO_BTF_MODULES kernel
+    # (struct module is four fields larger there), and stock WSL2 kernels set
+    # it. Building is not enough - the BTF has to be in the module.
+    if [ "$(cat /wsl-kernel/btf)" = "1" ]; then \
+        readelf -S selftest.ko | grep -q "\.BTF"; \
+    fi; \
     cd /; rm -rf /tmp/selftest
