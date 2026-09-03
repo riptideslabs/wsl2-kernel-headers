@@ -24,6 +24,10 @@ MODULES="${MODULES:-0}"
 # 1 keeps drivers/**/*.h - ~500 MB, and only in-tree drivers need them. Kept by
 # default so the image works for arbitrary out-of-tree modules, not just ours.
 KEEP_DRIVER_HEADERS="${KEEP_DRIVER_HEADERS:-1}"
+# Microsoft builds these kernels with GCC 13 (CONFIG_CC_VERSION_TEXT). Nothing
+# about module loading requires a match - vermagic carries no compiler string -
+# but matching keeps the flags the tree passes within a supported range.
+CC="${CC:-gcc}"
 
 case "$ARCH" in
 	x86)   CONFIG="arch/x86/configs/config-wsl";           IMAGE="bzImage" ;;
@@ -60,15 +64,45 @@ if [ "$BTF" != "1" ]; then
 		-e DEBUG_INFO_NONE )
 fi
 
-make -C "$SRC" ARCH="$ARCH" -j"$(nproc)" olddefconfig
-make -C "$SRC" ARCH="$ARCH" -j"$(nproc)" modules_prepare
-make -C "$SRC" ARCH="$ARCH" -j"$(nproc)" "$IMAGE"
+make -C "$SRC" ARCH="$ARCH" CC="$CC" -j"$(nproc)" olddefconfig
+
+# olddefconfig runs against *our* toolchain, and silently drops options it
+# cannot support: it turned CONFIG_GCC_PLUGINS off here, because Ubuntu's gcc
+# ships no plugin-dev headers. Harmless for that symbol, but RANDSTRUCT is the
+# same mechanism and would hand out modules that load and then corrupt memory,
+# with nothing in vermagic to catch it. So compare what actually changes module
+# ABI against Microsoft's file and refuse to ship a tree that differs.
+cfg_value() { # value of $2 in file $1, or "unset"
+	v="$(grep -E "^$2=" "$1" | head -n1 | cut -d= -f2- || true)"
+	echo "${v:-unset}"
+}
+abi_opts="CONFIG_MODVERSIONS CONFIG_MODULE_SIG
+	CONFIG_RANDSTRUCT CONFIG_RANDSTRUCT_FULL CONFIG_RANDSTRUCT_PERFORMANCE
+	CONFIG_LTO_NONE CONFIG_LTO_CLANG_FULL CONFIG_LTO_CLANG_THIN
+	CONFIG_CFI CONFIG_CFI_CLANG CONFIG_SHADOW_CALL_STACK
+	$(grep -oE '^CONFIG_GCC_PLUGIN_[A-Z0-9_]+' "$SRC/$CONFIG" | sort -u)"
+drift=0
+for o in $abi_opts; do
+	up="$(cfg_value "$SRC/$CONFIG" "$o")"
+	ours="$(cfg_value "$SRC/.config" "$o")"
+	if [ "$up" != "$ours" ]; then
+		echo "config drift: $o upstream=$up ours=$ours" >&2
+		drift=1
+	fi
+done
+if [ "$drift" != 0 ]; then
+	echo "module ABI would differ from Microsoft's config - refusing to build" >&2
+	exit 1
+fi
+echo "ABI-relevant config matches Microsoft's $CONFIG"
+make -C "$SRC" ARCH="$ARCH" CC="$CC" -j"$(nproc)" modules_prepare
+make -C "$SRC" ARCH="$ARCH" CC="$CC" -j"$(nproc)" "$IMAGE"
 
 # `make <image>` writes vmlinux.symvers, not Module.symvers - that one comes out
 # of the modules modpost pass. An external module only needs the built-in
 # exports, which vmlinux.symvers already carries.
 if [ "$MODULES" = "1" ]; then
-	make -C "$SRC" ARCH="$ARCH" -j"$(nproc)" modules
+	make -C "$SRC" ARCH="$ARCH" CC="$CC" -j"$(nproc)" modules
 else
 	cp "$SRC/vmlinux.symvers" "$SRC/Module.symvers"
 fi

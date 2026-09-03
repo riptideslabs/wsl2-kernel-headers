@@ -24,6 +24,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         $([ "${BTF}" = "1" ] && echo dwarves) \
     && rm -rf /var/lib/apt/lists/*
 
+# Microsoft builds these kernels with GCC 13. ubuntu:24.04 happens to default to
+# 13 as well, which is luck rather than intent - pin it so a future base-image
+# bump moves the compiler only when someone decides to. If the base ever stops
+# carrying gcc-13, this fails loudly instead of drifting.
+ARG GCC_VERSION=13
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc-${GCC_VERSION} g++-${GCC_VERSION} \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_VERSION} 100 \
+        --slave /usr/bin/g++ g++ /usr/bin/g++-${GCC_VERSION} \
+    && gcc --version | head -1
+
 COPY build.sh /build.sh
 RUN BTF=${BTF} MODULES=${MODULES} KEEP_DRIVER_HEADERS=${KEEP_DRIVER_HEADERS} \
         /build.sh "${TAG}" "${ARCH}"
@@ -44,6 +56,18 @@ LABEL org.opencontainers.image.licenses="GPL-2.0-only"
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential git kmod libelf1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Microsoft builds these kernels with GCC 13. ubuntu:24.04 happens to default to
+# 13 as well, which is luck rather than intent - pin it so a future base-image
+# bump moves the compiler only when someone decides to. If the base ever stops
+# carrying gcc-13, this fails loudly instead of drifting.
+ARG GCC_VERSION=13
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc-${GCC_VERSION} g++-${GCC_VERSION} \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_VERSION} 100 \
+        --slave /usr/bin/g++ g++ /usr/bin/g++-${GCC_VERSION} \
+    && gcc --version | head -1
 
 COPY --from=build /wsl-kernel /wsl-kernel
 
