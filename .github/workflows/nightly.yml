@@ -29,6 +29,10 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
   # Microsoft's live branches. Add the next one here when it appears.
   BRANCHES: "6.6 6.18"
+  # How many of each branch's newest tags to keep built. Anyone who has not run
+  # `wsl --update` recently is a tag or two behind, and their driver has to match
+  # the kernel they are actually running.
+  TAGS_PER_BRANCH: "2"
 
 jobs:
   discover:
@@ -39,8 +43,10 @@ jobs:
     steps:
       - name: Log in to GHCR
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      # Highest tag per branch, minus what is already published. `docker
-      # manifest inspect` failing is the "not published yet" signal.
+      # The newest TAGS_PER_BRANCH tags of each branch, minus what is already
+      # published. `docker manifest inspect` failing is the "not published yet"
+      # signal. Tags that fall out of the window stay published; nothing prunes
+      # them, so users on older kernels keep working.
       - name: Plan builds
         id: plan
         env:
@@ -54,10 +60,10 @@ jobs:
           else
             tags=""
             for b in $BRANCHES; do
-              latest=$(gh api --paginate \
+              newest=$(gh api --paginate \
                 repos/microsoft/WSL2-Linux-Kernel/git/matching-refs/tags/linux-msft-wsl-$b. \
-                --jq '.[].ref' | sed 's|refs/tags/||' | sort -V | tail -n1)
-              [ -n "$latest" ] && tags="$tags $latest"
+                --jq '.[].ref' | sed 's|refs/tags/||' | sort -u -V | tail -n"$TAGS_PER_BRANCH")
+              [ -n "$newest" ] && tags="$tags $newest"
             done
           fi
           echo "candidate tags:$tags"

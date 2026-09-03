@@ -59,10 +59,22 @@ tree. Cross-building is possible but not wired up here.
 
 ## What the nightly job does
 
-Polls Microsoft's live branches (6.6.y, 6.18.y) for the highest tag, skips what
-is already published, and builds the rest. WSL2 kernels land a few times a year
-per branch, so most nights are a no-op. Each image is smoke-tested by building
-a trivial module inside it before the push.
+Polls Microsoft's live branches (6.6.y, 6.18.y) for their newest
+`TAGS_PER_BRANCH` tags (2 by default), skips what is already published, and
+builds the rest. Two per branch rather than one because anyone who has not run
+`wsl --update` recently is a tag behind, and a module has to match the kernel
+they are actually running. WSL2 kernels land a few times a year per branch, so
+most nights are a no-op.
+
+Tags that fall out of that window stay published — nothing prunes them, so
+users on older kernels keep working. To build one that was never covered:
+
+```bash
+gh workflow run nightly.yml -f tag=linux-msft-wsl-6.18.33.2
+```
+
+Each image is smoke-tested by building a trivial module inside it before the
+push.
 
 `arm64` (Windows on ARM) is left out of the nightly matrix for now: hosted
 arm64 runners are not free for private repos. Build it by hand on an arm64 host,
