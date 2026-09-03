@@ -14,9 +14,13 @@ set -euo pipefail
 TAG="${1:?usage: build.sh <tag> [arch]}"
 ARCH="${2:-x86}"
 OUT="${OUT:-/wsl-kernel}"
-# 1 keeps BTF, which anything using CO-RE eBPF against this kernel needs. Costs
-# a much slower, much larger build and requires pahole (dwarves).
-BTF="${BTF:-0}"
+# Microsoft ships CONFIG_DEBUG_INFO_BTF_MODULES=y. That adds four fields to
+# struct module, and the loader rejects any .ko whose this_module section size
+# differs from the running kernel's sizeof(struct module) (-ENOEXEC). So a
+# BTF-less tree produces modules that will not load on a stock WSL2 kernel -
+# keep this at 1 for anything shipped. Costs a slower, larger build, needs
+# pahole, and requires the base BTF to stay in the tree (see the prune).
+BTF="${BTF:-1}"
 # 1 runs the real `make modules` instead of reusing vmlinux.symvers. These
 # configs carry one to two thousand modules, and an external module only links
 # against built-in exports, so the default skips it.
@@ -116,9 +120,20 @@ echo "kernel release: $RELEASE"
 # want to re-link them, which needs their sources.
 before="$(du -sh "$SRC" | cut -f1)"
 
+# Module BTF generation runs `pahole --btf_base vmlinux`, so the base BTF has to
+# survive. Keep it as a stripped ELF carrying only .BTF - a few MB instead of
+# the ~1 GB a debug-info vmlinux weighs.
+if [ "$BTF" = "1" ]; then
+	objcopy --only-section=.BTF "$SRC/vmlinux" "$SRC/vmlinux.btf.elf"
+	mv "$SRC/vmlinux.btf.elf" "$SRC/vmlinux"
+	ls -l "$SRC/vmlinux"
+else
+	rm -f "$SRC/vmlinux"
+fi
+
 find "$SRC" -name '*.o' ! -path "$SRC/scripts/*" ! -path "$SRC/tools/*" -delete
 find "$SRC" -name '*.cmd' -delete
-rm -rf "$SRC/vmlinux" "$SRC/vmlinux.o" "$SRC/.tmp_vmlinux"* "$SRC/System.map"
+rm -rf "$SRC/vmlinux.o" "$SRC/.tmp_vmlinux"* "$SRC/System.map"
 
 find "$SRC" \( -name '*.c' -o -name '*.S' -o -name '*.rs' -o -name '*.dts' -o -name '*.dtsi' \) \
 	! -path "$SRC/scripts/*" ! -path "$SRC/tools/*" -delete

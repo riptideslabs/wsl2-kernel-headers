@@ -12,7 +12,9 @@ FROM ubuntu:${UBUNTU_VERSION} AS build
 ARG TAG
 # x86 (normal WSL2) or arm64 (Windows on ARM). Native only.
 ARG ARCH=x86
-ARG BTF=0
+# 1 by default: Microsoft's kernels set DEBUG_INFO_BTF_MODULES, and a module
+# built against a BTF-less tree is rejected by the loader (see build.sh).
+ARG BTF=1
 ARG MODULES=0
 ARG KEEP_DRIVER_HEADERS=1
 
@@ -53,8 +55,11 @@ LABEL org.opencontainers.image.licenses="GPL-2.0-only"
 # libelf1 is not optional: the prebuilt tools/objtool is dynamically linked
 # against it, and on x86 kbuild runs objtool over every module object, so
 # without it every module build in this image dies with exit 127.
+# dwarves supplies pahole, which kbuild runs over every module to generate its
+# BTF (DEBUG_INFO_BTF_MODULES); libelf1 is what the prebuilt objtool links
+# against, and on x86 objtool runs over every module object.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential git kmod libelf1 \
+        build-essential git kmod libelf1 dwarves \
     && rm -rf /var/lib/apt/lists/*
 
 # Microsoft builds these kernels with GCC 13. ubuntu:24.04 happens to default to
